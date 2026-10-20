@@ -4387,27 +4387,38 @@ function Elements:CreateDropdown(Cfg)
         local MENU_STYLE_PRESETS = {
             ["Cinnamoroll & Pochacco"] = {
                 Palette = {
-                    Main = Color3.fromRGB(14, 21, 34),
-                    Second = Color3.fromRGB(24, 36, 54),
-                    Accent = Color3.fromRGB(102, 199, 255),
-                    ElementAccent = Color3.fromRGB(248, 157, 193),
+                    Main = Color3.fromRGB(16, 32, 50),
+                    Second = Color3.fromRGB(28, 52, 75),
+                    Accent = Color3.fromRGB(139, 220, 255),
+                    ElementAccent = Color3.fromRGB(82, 181, 239),
                     Text = Color3.fromRGB(246, 251, 255),
-                    TextDark = Color3.fromRGB(174, 193, 209),
+                    TextDark = Color3.fromRGB(174, 207, 226),
                     Error = Color3.fromRGB(255, 110, 137),
-                    GradientStart = Color3.fromRGB(97, 197, 255),
-                    GradientEnd = Color3.fromRGB(255, 161, 206)
+                    GradientStart = Color3.fromRGB(73, 179, 242),
+                    GradientEnd = Color3.fromRGB(183, 233, 255)
                 },
-                Layout = "Sides",
                 Characters = {
                     {
                         Name = "Cinnamoroll",
-                        Image = "rbxthumb://type=Asset&id=7270179211&w=420&h=420",
-                        Stroke = "Accent"
+                        Image = "rbxthumb://type=Asset&id=118011660358950&w=420&h=420",
+                        Placement = "Top",
+                        Width = 174,
+                        Height = 170,
+                        MobileWidth = 122,
+                        MobileHeight = 120,
+                        BottomOffset = 32,
+                        MobileBottomOffset = 26
                     },
                     {
                         Name = "Pochacco",
-                        Image = "rbxthumb://type=Asset&id=14677060921&w=420&h=420",
-                        Stroke = "ElementAccent"
+                        Image = "rbxthumb://type=Asset&id=13187317029&w=420&h=420",
+                        Placement = "Right",
+                        Width = 148,
+                        Height = 148,
+                        MobileWidth = 102,
+                        MobileHeight = 102,
+                        SideOffset = 36,
+                        MobileSideOffset = 16
                     }
                 }
             }
@@ -4445,71 +4456,43 @@ function Elements:CreateDropdown(Cfg)
             local root = WindowContainer:FindFirstChild("MenuStyleArt")
             if not root then return end
             root.Visible = enabled == true
-            if not enabled then return end
-
             for _, child in ipairs(root:GetChildren()) do
                 child:Destroy()
             end
+            if not enabled then return end
 
             local characters = preset and preset.Characters or {}
-            local count = #characters
-            if count == 0 then return end
             local mobile = IsMobile
-            local size = mobile and 60 or 96
-            local y = WindowSizeY * 0.34
-            local sideInset = mobile and -size * 0.22 or -size * 0.5
-
             for index, character in ipairs(characters) do
-                local xScale, xOffset = 0, 0
-                local yOffset = y
-                if preset.Layout == "Top" or count == 1 then
-                    local gap = mobile and 8 or 12
-                    local totalWidth = count * size + math.max(0, count - 1) * gap
-                    local left = (WindowSizeX - totalWidth) / 2
-                    xOffset = left + (index - 0.5) * size + (index - 1) * gap
-                    yOffset = -size * 0.42
-                elseif index == 1 then
-                    xOffset = sideInset
-                elseif index == 2 then
-                    xScale = 1
-                    xOffset = -sideInset
+                local placement = character.Placement or (index == 1 and "Left" or "Right")
+                local width = mobile and (character.MobileWidth or 84) or (character.Width or 108)
+                local height = mobile and (character.MobileHeight or width) or (character.Height or width)
+                local anchor = Vector2.new(0.5, 0.5)
+                local position
+
+                if placement == "Top" then
+                    anchor = Vector2.new(0.5, 1)
+                    position = UDim2.new(0.5, character.XOffset or 0, 0, mobile and (character.MobileBottomOffset or 26) or (character.BottomOffset or 32))
+                elseif placement == "Left" then
+                    position = UDim2.new(0, mobile and -(width * 0.18) or -(width * 0.5), 0, WindowSizeY * (character.HeightRatio or 0.34))
+                elseif placement == "Right" then
+                    position = UDim2.new(1, mobile and (character.MobileSideOffset or 16) or (character.SideOffset or 36), 0, WindowSizeY * (character.HeightRatio or 0.34))
                 else
-                    local gap = mobile and 8 or 12
-                    local totalWidth = count * size + math.max(0, count - 1) * gap
-                    local left = (WindowSizeX - totalWidth) / 2
-                    xOffset = left + (index - 0.5) * size + (index - 1) * gap
-                    yOffset = -size * 0.42
+                    position = UDim2.new(0.5, character.XOffset or 0, 0, WindowSizeY * (character.HeightRatio or 0.34))
                 end
 
-                local card = Create("Frame", {
+                Create("ImageLabel", {
                     Name = "Character_" .. tostring(character.Name or index),
                     Parent = root,
-                    AnchorPoint = Vector2.new(0.5, 0.5),
-                    Position = UDim2.new(xScale, xOffset, 0, yOffset),
-                    Size = UDim2.fromOffset(size, size),
-                    BackgroundColor3 = theme.Second,
-                    BackgroundTransparency = 0.04,
-                    BorderSizePixel = 0,
-                    ClipsDescendants = true,
-                    ZIndex = 21
-                })
-                AddCorner(card, 14)
-                local strokeColor = theme[character.Stroke] or theme.ElementAccent or theme.Accent
-                Create("UIStroke", {
-                    Name = "AccentStroke",
-                    Parent = card,
-                    Color = strokeColor,
-                    Thickness = 1.5,
-                    Transparency = 0.15
-                })
-                Create("ImageLabel", {
-                    Name = "Artwork",
-                    Parent = card,
-                    Position = UDim2.fromOffset(4, 4),
-                    Size = UDim2.new(1, -8, 1, -8),
+                    AnchorPoint = anchor,
+                    Position = position,
+                    Size = UDim2.fromOffset(width, height),
                     BackgroundTransparency = 1,
                     Image = character.Image or "",
+                    ImageColor3 = Color3.new(1, 1, 1),
+                    ImageTransparency = character.ImageTransparency or 0,
                     ScaleType = Enum.ScaleType.Fit,
+                    Active = false,
                     ZIndex = 22
                 })
             end
