@@ -1158,6 +1158,32 @@ function Library:CreateWindow(Settings)
     local Title = Config.Title or "UI"
     local SelectedTheme = GetTheme(Config.Theme)
 
+    Library.ThemeListeners = {}
+    function Library:OnThemeChanged(callback)
+        if type(callback) ~= "function" then
+            return function() end
+        end
+        table.insert(self.ThemeListeners, callback)
+        if self.ActiveTheme then
+            pcall(callback, self.ActiveTheme, self.MenuStyleActive == true)
+        end
+        return function()
+            for i = #self.ThemeListeners, 1, -1 do
+                if self.ThemeListeners[i] == callback then
+                    table.remove(self.ThemeListeners, i)
+                end
+            end
+        end
+    end
+
+    function Library:EmitThemeChanged(theme, menuStyleActive)
+        self.ActiveTheme = theme
+        self.MenuStyleActive = menuStyleActive == true
+        for _, callback in ipairs(self.ThemeListeners) do
+            pcall(callback, theme, self.MenuStyleActive)
+        end
+    end
+
     -- ===== ASTRA PALETI: notr siyah zemin + gri cizgiler, accent (turkuaz) korunur =====
     Library.Style = {
         Background = Color3.fromRGB(12, 12, 12),
@@ -1188,6 +1214,8 @@ function Library:CreateWindow(Settings)
     Themes.Default.GradientStart = SelectedTheme.GradientStart
     Themes.Default.GradientEnd = SelectedTheme.GradientEnd
     Themes.Default.Gradient = SelectedTheme.Gradient
+    Library.ActiveTheme = SelectedTheme
+    Library.MenuStyleActive = false
 
     if SelectedTheme.Font then
         UpdateFonts(SelectedTheme.Font)
@@ -1654,6 +1682,18 @@ function Library:CreateWindow(Settings)
         BackgroundTransparency = 1,
         ZIndex = 1
     })
+
+    do
+        local ArtRoot = Create("Frame", {
+            Name = "MenuStyleArt",
+            Parent = WindowContainer,
+            Size = UDim2.fromScale(1, 1),
+            BackgroundTransparency = 1,
+            Visible = false,
+            ClipsDescendants = false,
+            ZIndex = 20
+        })
+    end
 
     -- Acilis/kapanis fade animasyonu icin CanvasGroup (sadece animasyon sirasinda kullanilir)
     local FadeGroup
@@ -4343,6 +4383,219 @@ function Elements:CreateDropdown(Cfg)
         end
     })
 
+    do
+        local MENU_STYLE_PRESETS = {
+            ["Cinnamoroll & Pochacco"] = {
+                Palette = {
+                    Main = Color3.fromRGB(14, 21, 34),
+                    Second = Color3.fromRGB(24, 36, 54),
+                    Accent = Color3.fromRGB(102, 199, 255),
+                    ElementAccent = Color3.fromRGB(248, 157, 193),
+                    Text = Color3.fromRGB(246, 251, 255),
+                    TextDark = Color3.fromRGB(174, 193, 209),
+                    Error = Color3.fromRGB(255, 110, 137),
+                    GradientStart = Color3.fromRGB(97, 197, 255),
+                    GradientEnd = Color3.fromRGB(255, 161, 206)
+                },
+                Layout = "Sides",
+                Characters = {
+                    {
+                        Name = "Cinnamoroll",
+                        Image = "rbxthumb://type=Asset&id=7270179211&w=420&h=420",
+                        Stroke = "Accent"
+                    },
+                    {
+                        Name = "Pochacco",
+                        Image = "rbxthumb://type=Asset&id=14677060921&w=420&h=420",
+                        Stroke = "ElementAccent"
+                    }
+                }
+            }
+        }
+        local MENU_STYLE_NAMES = {}
+        for name in pairs(MENU_STYLE_PRESETS) do
+            table.insert(MENU_STYLE_NAMES, name)
+        end
+        table.sort(MENU_STYLE_NAMES)
+
+        local selectedMenuStyle = MENU_STYLE_NAMES[1]
+        local menuStyleEnabled = false
+        local themeBeforeMenuStyle = nil
+        local paletteKeys = {
+            "Main", "Second", "Accent", "ElementAccent", "Text",
+            "TextDark", "Error", "GradientStart", "GradientEnd"
+        }
+
+        local function capturePalette(theme)
+            local palette = {}
+            for _, key in ipairs(paletteKeys) do
+                palette[key] = theme[key]
+            end
+            return palette
+        end
+
+        local function syncColorPicker(flag, color)
+            local item = Library.Items[flag]
+            if item and item.Set and color then
+                pcall(item.Set, color)
+            end
+        end
+
+        local function setMenuStyleArt(preset, theme, enabled)
+            local root = WindowContainer:FindFirstChild("MenuStyleArt")
+            if not root then return end
+            root.Visible = enabled == true
+            if not enabled then return end
+
+            for _, child in ipairs(root:GetChildren()) do
+                child:Destroy()
+            end
+
+            local characters = preset and preset.Characters or {}
+            local count = #characters
+            if count == 0 then return end
+            local mobile = IsMobile
+            local size = mobile and 60 or 96
+            local y = WindowSizeY * 0.34
+            local sideInset = mobile and -size * 0.22 or -size * 0.5
+
+            for index, character in ipairs(characters) do
+                local xScale, xOffset = 0, 0
+                local yOffset = y
+                if preset.Layout == "Top" or count == 1 then
+                    local gap = mobile and 8 or 12
+                    local totalWidth = count * size + math.max(0, count - 1) * gap
+                    local left = (WindowSizeX - totalWidth) / 2
+                    xOffset = left + (index - 0.5) * size + (index - 1) * gap
+                    yOffset = -size * 0.42
+                elseif index == 1 then
+                    xOffset = sideInset
+                elseif index == 2 then
+                    xScale = 1
+                    xOffset = -sideInset
+                else
+                    local gap = mobile and 8 or 12
+                    local totalWidth = count * size + math.max(0, count - 1) * gap
+                    local left = (WindowSizeX - totalWidth) / 2
+                    xOffset = left + (index - 0.5) * size + (index - 1) * gap
+                    yOffset = -size * 0.42
+                end
+
+                local card = Create("Frame", {
+                    Name = "Character_" .. tostring(character.Name or index),
+                    Parent = root,
+                    AnchorPoint = Vector2.new(0.5, 0.5),
+                    Position = UDim2.new(xScale, xOffset, 0, yOffset),
+                    Size = UDim2.fromOffset(size, size),
+                    BackgroundColor3 = theme.Second,
+                    BackgroundTransparency = 0.04,
+                    BorderSizePixel = 0,
+                    ClipsDescendants = true,
+                    ZIndex = 21
+                })
+                AddCorner(card, 14)
+                local strokeColor = theme[character.Stroke] or theme.ElementAccent or theme.Accent
+                Create("UIStroke", {
+                    Name = "AccentStroke",
+                    Parent = card,
+                    Color = strokeColor,
+                    Thickness = 1.5,
+                    Transparency = 0.15
+                })
+                Create("ImageLabel", {
+                    Name = "Artwork",
+                    Parent = card,
+                    Position = UDim2.fromOffset(4, 4),
+                    Size = UDim2.new(1, -8, 1, -8),
+                    BackgroundTransparency = 1,
+                    Image = character.Image or "",
+                    ScaleType = Enum.ScaleType.Fit,
+                    ZIndex = 22
+                })
+            end
+        end
+
+        local function applyPalette(palette, menuStyleActive, preset)
+            local nextTheme = {}
+            for key, value in pairs(SelectedTheme) do
+                nextTheme[key] = value
+            end
+            for key, value in pairs(palette) do
+                nextTheme[key] = value
+                Themes.Default[key] = value
+            end
+            nextTheme.Gradient = GetGradientSeq(nextTheme)
+            Themes.Default.Gradient = nextTheme.Gradient
+            SelectedTheme = nextTheme
+            Library.MenuStyleActive = menuStyleActive == true
+
+            Main.BackgroundColor3 = nextTheme.Main
+            MainBgColor.BackgroundColor3 = nextTheme.Main
+            UpdateThemeObjects()
+            UpdateGradients(nextTheme.Gradient)
+
+            syncColorPicker("Settings_MainColor", nextTheme.Main)
+            syncColorPicker("Settings_SecondColor", nextTheme.Second)
+            syncColorPicker("Settings_ElementColor", nextTheme.ElementAccent)
+            syncColorPicker("Settings_TextColor", nextTheme.Text)
+            syncColorPicker("Settings_GradStart", nextTheme.GradientStart or nextTheme.Accent)
+            syncColorPicker("Settings_GradEnd", nextTheme.GradientEnd or nextTheme.Accent)
+
+            setMenuStyleArt(preset, nextTheme, menuStyleActive)
+            Library:EmitThemeChanged(nextTheme, menuStyleActive)
+        end
+
+        local function applySelectedMenuStyle()
+            local preset = MENU_STYLE_PRESETS[selectedMenuStyle]
+            if not preset then return end
+            local base = themeBeforeMenuStyle or capturePalette(SelectedTheme)
+            local palette = {}
+            for key, value in pairs(base) do
+                palette[key] = value
+            end
+            for key, value in pairs(preset.Palette) do
+                palette[key] = value
+            end
+            applyPalette(palette, true, preset)
+        end
+
+        local MenuStyleBlock = SettingsTab:CreateBlock({Name = "Menu Style", Side = "Right"})
+        MenuStyleBlock:CreateToggle({
+            Name = "Enable",
+            Flag = "Settings_MenuStyleEnabled",
+            Default = false,
+            Callback = function(value)
+                menuStyleEnabled = value == true
+                if menuStyleEnabled then
+                    themeBeforeMenuStyle = capturePalette(SelectedTheme)
+                    applySelectedMenuStyle()
+                else
+                    if themeBeforeMenuStyle then
+                        applyPalette(themeBeforeMenuStyle, false, nil)
+                    else
+                        setMenuStyleArt(nil, SelectedTheme, false)
+                        Library:EmitThemeChanged(SelectedTheme, false)
+                    end
+                    themeBeforeMenuStyle = nil
+                end
+            end
+        })
+        MenuStyleBlock:CreateDropdown({
+            Name = "Style",
+            Flag = "Settings_MenuStyle",
+            Items = MENU_STYLE_NAMES,
+            Default = selectedMenuStyle,
+            Callback = function(value)
+                if value and MENU_STYLE_PRESETS[value] then
+                    selectedMenuStyle = value
+                    if menuStyleEnabled then
+                        applySelectedMenuStyle()
+                    end
+                end
+            end
+        })
+    end
+
     local KeyBlock = SettingsTab:CreateBlock({Name = "Keybinds", Side = "Left"})
     
     KeyBlock:CreateKeybind({
@@ -4429,6 +4682,7 @@ function Elements:CreateDropdown(Cfg)
             SelectedTheme.Main = c
             Themes.Default.Main = c
             UpdateThemeObjects()
+            Library:EmitThemeChanged(SelectedTheme, Library.MenuStyleActive == true)
         end
     }) 
     
@@ -4440,6 +4694,7 @@ function Elements:CreateDropdown(Cfg)
             SelectedTheme.Second = c
             Themes.Default.Second = c
             UpdateThemeObjects()
+            Library:EmitThemeChanged(SelectedTheme, Library.MenuStyleActive == true)
         end
     })
     
@@ -4451,6 +4706,7 @@ function Elements:CreateDropdown(Cfg)
             SelectedTheme.ElementAccent = c
             Themes.Default.ElementAccent = c
             UpdateThemeObjects()
+            Library:EmitThemeChanged(SelectedTheme, Library.MenuStyleActive == true)
         end
     })
     
@@ -4462,6 +4718,7 @@ function Elements:CreateDropdown(Cfg)
             SelectedTheme.Text = c
             Themes.Default.Text = c
             UpdateThemeObjects()
+            Library:EmitThemeChanged(SelectedTheme, Library.MenuStyleActive == true)
         end
     })
     
@@ -4473,6 +4730,7 @@ function Elements:CreateDropdown(Cfg)
             SelectedTheme.GradientStart = c
             SelectedTheme.Gradient = GetGradientSeq(SelectedTheme)
             UpdateGradients(SelectedTheme.Gradient)
+            Library:EmitThemeChanged(SelectedTheme, Library.MenuStyleActive == true)
         end
     })
     
@@ -4484,6 +4742,7 @@ function Elements:CreateDropdown(Cfg)
             SelectedTheme.GradientEnd = c
             SelectedTheme.Gradient = GetGradientSeq(SelectedTheme)
             UpdateGradients(SelectedTheme.Gradient)
+            Library:EmitThemeChanged(SelectedTheme, Library.MenuStyleActive == true)
         end
     })
 
@@ -4558,6 +4817,7 @@ function Elements:CreateDropdown(Cfg)
             
             UpdateThemeObjects()
             UpdateGradients(SelectedTheme.Gradient)
+            Library:EmitThemeChanged(SelectedTheme, Library.MenuStyleActive == true)
 
             if Library.Items["Settings_MainColor"] then Library.Items["Settings_MainColor"].Set(NewTheme.Main) end
             if Library.Items["Settings_SecondColor"] then Library.Items["Settings_SecondColor"].Set(NewTheme.Second) end
