@@ -1747,6 +1747,17 @@ function Library:CreateWindow(Settings)
 
     local OrbContainer = AddSoftOrbs(Main, SelectedTheme)
 
+    Create("Frame", {
+        Name = "MenuStyleBackdropArt",
+        Parent = Main,
+        Size = UDim2.fromScale(1, 1),
+        BackgroundTransparency = 1,
+        Visible = false,
+        ClipsDescendants = true,
+        Active = false,
+        ZIndex = 3
+    })
+
     AddCorner(Main, 10)
     Create("UIStroke", {
         Parent = Main,
@@ -4421,6 +4432,70 @@ function Elements:CreateDropdown(Cfg)
                         MobileSideOffset = 16
                     }
                 }
+            },
+            ["Spider-Man"] = {
+                Palette = {
+                    Main = Color3.fromRGB(14, 22, 38),
+                    Second = Color3.fromRGB(25, 41, 63),
+                    Accent = Color3.fromRGB(235, 47, 58),
+                    ElementAccent = Color3.fromRGB(63, 146, 243),
+                    Text = Color3.fromRGB(248, 251, 255),
+                    TextDark = Color3.fromRGB(172, 190, 212),
+                    Error = Color3.fromRGB(255, 94, 104),
+                    GradientStart = Color3.fromRGB(218, 40, 54),
+                    GradientEnd = Color3.fromRGB(50, 125, 226)
+                },
+                Characters = {
+                    {
+                        Name = "Spider-Man",
+                        Image = "rbxthumb://type=Asset&id=112313982245043&w=420&h=420",
+                        Placement = "Top",
+                        Width = 174,
+                        Height = 174,
+                        MobileWidth = 122,
+                        MobileHeight = 122,
+                        BottomOffset = 32,
+                        MobileBottomOffset = 26
+                    }
+                }
+            },
+            ["Venom"] = {
+                Palette = {
+                    Main = Color3.fromRGB(12, 12, 16),
+                    Second = Color3.fromRGB(27, 25, 30),
+                    Accent = Color3.fromRGB(221, 42, 55),
+                    ElementAccent = Color3.fromRGB(236, 236, 241),
+                    Text = Color3.fromRGB(248, 247, 250),
+                    TextDark = Color3.fromRGB(175, 174, 184),
+                    Error = Color3.fromRGB(255, 75, 87),
+                    GradientStart = Color3.fromRGB(87, 12, 24),
+                    GradientEnd = Color3.fromRGB(223, 36, 50)
+                },
+                Characters = {
+                    {
+                        Name = "Venom",
+                        Image = "rbxthumb://type=Asset&id=17411720119&w=420&h=420",
+                        Placement = "Top",
+                        Width = 190,
+                        Height = 176,
+                        MobileWidth = 134,
+                        MobileHeight = 124,
+                        BottomOffset = 32,
+                        MobileBottomOffset = 26
+                    }
+                },
+                Backdrop = {
+                    {
+                        Name = "SymbioteTendrils",
+                        Image = "rbxthumb://type=Asset&id=13339002641&w=420&h=420",
+                        AnchorPoint = Vector2.new(0.5, 0.5),
+                        Position = UDim2.new(0.5, 0, 0.54, 0),
+                        Size = UDim2.new(1.18, 0, 1.18, 0),
+                        Tint = Color3.fromRGB(195, 48, 59),
+                        Transparency = 0.58,
+                        Rotation = -6
+                    }
+                }
             }
         }
         local MENU_STYLE_NAMES = {}
@@ -4498,6 +4573,37 @@ function Elements:CreateDropdown(Cfg)
             end
         end
 
+        local function setMenuStyleBackdrop(preset, enabled)
+            local root = Main:FindFirstChild("MenuStyleBackdropArt")
+            if not root then return end
+
+            for _, child in ipairs(root:GetChildren()) do
+                child:Destroy()
+            end
+
+            local layers = (preset and type(preset.Backdrop) == "table") and preset.Backdrop or {}
+            root.Visible = enabled == true and #layers > 0
+            if not root.Visible then return end
+
+            for index, layer in ipairs(layers) do
+                Create("ImageLabel", {
+                    Name = "Backdrop_" .. tostring(layer.Name or index),
+                    Parent = root,
+                    AnchorPoint = layer.AnchorPoint or Vector2.new(0.5, 0.5),
+                    Position = layer.Position or UDim2.fromScale(0.5, 0.5),
+                    Size = layer.Size or UDim2.fromScale(1, 1),
+                    BackgroundTransparency = 1,
+                    Image = layer.Image or "",
+                    ImageColor3 = layer.Tint or Color3.new(1, 1, 1),
+                    ImageTransparency = layer.Transparency or 0.6,
+                    Rotation = layer.Rotation or 0,
+                    ScaleType = layer.ScaleType or Enum.ScaleType.Fit,
+                    Active = false,
+                    ZIndex = 4
+                })
+            end
+        end
+
         local function applyPalette(palette, menuStyleActive, preset)
             local nextTheme = {}
             for key, value in pairs(SelectedTheme) do
@@ -4525,6 +4631,7 @@ function Elements:CreateDropdown(Cfg)
             syncColorPicker("Settings_GradEnd", nextTheme.GradientEnd or nextTheme.Accent)
 
             setMenuStyleArt(preset, nextTheme, menuStyleActive)
+            setMenuStyleBackdrop(preset, menuStyleActive)
             Library:EmitThemeChanged(nextTheme, menuStyleActive)
         end
 
@@ -4557,6 +4664,7 @@ function Elements:CreateDropdown(Cfg)
                         applyPalette(themeBeforeMenuStyle, false, nil)
                     else
                         setMenuStyleArt(nil, SelectedTheme, false)
+                        setMenuStyleBackdrop(nil, false)
                         Library:EmitThemeChanged(SelectedTheme, false)
                     end
                     themeBeforeMenuStyle = nil
