@@ -51,7 +51,8 @@ Library.ThemeObjects = {
     TextDark = {},
     Toggles = {},
     TabLabels = {},
-    Keybinds = {}
+    Keybinds = {},
+    ShellOutline = {}
 }
 
 Library.ThemeFolder = "SolarisUI-Themes"
@@ -542,6 +543,18 @@ local function UpdateThemeObjects()
             table.remove(Library.ThemeObjects.TextDark, i)
         end
     end
+    for i = #Library.ThemeObjects.ShellOutline, 1, -1 do
+        local stroke = Library.ThemeObjects.ShellOutline[i]
+        if stroke and stroke.Parent then
+            if Library.MenuStyleShellActive and Library.Style then
+                stroke.Color = Library.Style.Outline
+            else
+                stroke.Color = Color3.fromRGB(110, 110, 110)
+            end
+        else
+            table.remove(Library.ThemeObjects.ShellOutline, i)
+        end
+    end
     for i = #Library.ThemeObjects.Toggles, 1, -1 do
         local t = Library.ThemeObjects.Toggles[i]
         if t.Box and t.Box.Parent and t.Stroke and t.Stroke.Parent and t.Square and t.Square.Parent then
@@ -636,14 +649,15 @@ local function CreateDropShadow(parent, blurRadius, opacity)
 end
 
 local function AddStroke(instance, theme)
-    -- Astra tarzi: duz gri cizgi (gradient yok)
+    -- Astra tarzi: duz gri cizgi; Menu Style aktifken pastel mauve outline kullanir.
     local stroke = Create("UIStroke", {
-        Color = Color3.fromRGB(110, 110, 110),
+        Color = (Library.MenuStyleShellActive and Library.Style and Library.Style.Outline) or Color3.fromRGB(110, 110, 110),
         Thickness = 1,
         Transparency = 0.5,
         ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
         Parent = instance
     })
+    table.insert(Library.ThemeObjects.ShellOutline, stroke)
     return stroke
 end
 
@@ -709,7 +723,7 @@ local function CreateRipple(btn, color)
             Name = "Ripple",
             Parent = btn,
             Image = "rbxassetid://4743389506",
-            ImageColor3 = color,
+            ImageColor3 = (Library.ActiveTheme and Library.ActiveTheme.ElementAccent) or color,
             BackgroundTransparency = 1,
             ImageTransparency = 0.5,
             Position = UDim2.new(0, Mouse.X - btn.AbsolutePosition.X, 0, Mouse.Y - btn.AbsolutePosition.Y),
@@ -755,34 +769,47 @@ local function MakeDraggable(topbar, frame)
     end
 end
 
-local function MakeResizable(handle, frame)
+local function MakeResizable(handle, frame, onResize)
     local dragging, dragStart, startSize
-    local MinSize = Vector2.new(500, 350)
-    local MaxSize = Vector2.new(1000, 800)
-    
+
     handle.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
             dragging = true
             dragStart = input.Position
             startSize = frame.AbsoluteSize
-            input.Changed:Connect(function()
-                if input.UserInputState == Enum.UserInputState.End then
-                    dragging = false
-                end
-            end)
         end
     end)
-    
+
     local inputChangedConnection = UIS.InputChanged:Connect(function(input)
-        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-            local delta = input.Position - dragStart
-            local newX = math.clamp(startSize.X + delta.X, MinSize.X, MaxSize.X)
-            local newY = math.clamp(startSize.Y + delta.Y, MinSize.Y, MaxSize.Y)
-            TS:Create(frame, TweenInfo.new(0.08, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {Size = UDim2.fromOffset(newX, newY)}):Play()
+        if not dragging or (input.UserInputType ~= Enum.UserInputType.MouseMovement and input.UserInputType ~= Enum.UserInputType.Touch) then
+            return
+        end
+
+        local camera = workspace.CurrentCamera
+        local viewport = camera and camera.ViewportSize or Vector2.new(1280, 720)
+        local isMobile = UIS.TouchEnabled and (viewport.X < 850 or viewport.Y < 600)
+        local minX = isMobile and 280 or 500
+        local minY = isMobile and 300 or 350
+        local delta = input.Position - dragStart
+        -- Like RESO, there is no maximum size; only a minimum is enforced.
+        local newX = math.max(minX, startSize.X + delta.X)
+        local newY = math.max(minY, startSize.Y + delta.Y)
+
+        -- WindowContainer is top-left anchored, so changing Size leaves that corner fixed.
+        frame.Size = UDim2.fromOffset(newX, newY)
+        if onResize then
+            pcall(onResize, newX, newY)
+        end
+    end)
+
+    local inputEndedConnection = UIS.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = false
         end
     end)
     if Library.WindowConnections then
         table.insert(Library.WindowConnections, inputChangedConnection)
+        table.insert(Library.WindowConnections, inputEndedConnection)
     end
 end
 
@@ -1169,6 +1196,7 @@ function Library:CreateWindow(Settings)
     Library.WindowClosing = false
     Library.WindowDestroyed = false
     Library.CloseHandler = nil
+    Library.MenuStyleShellActive = false
     function Library:OnThemeChanged(callback)
         if type(callback) ~= "function" then
             return function() end
@@ -1246,9 +1274,15 @@ function Library:CreateWindow(Settings)
     end
 
     local CustomIconID = Config.CustomIcon
+    local sidebarViewport = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(1280, 720)
+    -- Config.CompactSidebar now controls the initial state on every device.
     local CompactSidebar = Config.CompactSidebar == true
-    local SidebarWidth = CompactSidebar and 54 or 165
+    local CompactSidebarWidth = 52
+    local ExpandedSidebarWidth = 170
+    local SidebarExpanded = not CompactSidebar
+    local SidebarWidth = SidebarExpanded and ExpandedSidebarWidth or CompactSidebarWidth
     local SidebarX = CompactSidebar and 8 or 15
+    local refreshWindowLayout = nil
     local ContentX = SidebarX + SidebarWidth + 15
 
     local ScreenGui = Create("ScreenGui", {
@@ -1681,14 +1715,14 @@ function Library:CreateWindow(Settings)
     local TOPBAR_H = 48
     local FOOTER_H = 22
     local TAB_H = 32
-    SidebarWidth = CompactSidebar and 52 or 170
+    SidebarWidth = SidebarExpanded and ExpandedSidebarWidth or CompactSidebarWidth
 
     local WindowContainer = Create("Frame", {
         Name = "WindowContainer",
         Parent = ScreenGui,
         Size = WindowSize,
-        Position = UDim2.fromScale(0.5, 0.5),
-        AnchorPoint = Vector2.new(0.5, 0.5),
+        Position = UDim2.fromOffset(math.max(0, (VP.X - WindowSizeX) / 2), math.max(0, (VP.Y - WindowSizeY) / 2)),
+        AnchorPoint = Vector2.zero,
         BackgroundTransparency = 1,
         ZIndex = 1
     })
@@ -1758,7 +1792,7 @@ function Library:CreateWindow(Settings)
     local OrbContainer = AddSoftOrbs(Main, SelectedTheme)
 
     AddCorner(Main, 10)
-    Create("UIStroke", {
+    local MainOutline = Create("UIStroke", {
         Parent = Main,
         Color = Style.Outline,
         Thickness = 1,
@@ -1774,7 +1808,17 @@ function Library:CreateWindow(Settings)
 
     -- Ust cizgi / sidebar dikey cizgi / footer cizgisi
     Divider({Name = "TopDivider", Parent = Main, Size = UDim2.new(1, 0, 0, 1), Position = UDim2.new(0, 0, 0, TOPBAR_H)})
-    Divider({Name = "SideDivider", Parent = Main, Size = UDim2.new(0, 1, 1, -FOOTER_H), Position = UDim2.new(0, SidebarWidth, 0, 0)})
+    local SideDivider = Divider({Name = "SideDivider", Parent = Main, Size = UDim2.new(0, 1, 1, -FOOTER_H), Position = UDim2.new(0, SidebarWidth, 0, 0)})
+    local SidebarResizeHandle = Create("TextButton", {
+        Name = "SidebarResizeHandle",
+        Parent = Main,
+        Position = UDim2.new(0, SidebarWidth - 5, 0, TOPBAR_H + 1),
+        Size = UDim2.new(0, 10, 1, -(TOPBAR_H + FOOTER_H + 2)),
+        BackgroundTransparency = 1,
+        Text = "",
+        AutoButtonColor = false,
+        ZIndex = 30
+    })
     Divider({Name = "FooterDivider", Parent = Main, Size = UDim2.new(1, 0, 0, 1), Position = UDim2.new(0, 0, 1, -FOOTER_H)})
 
     -- ===== TOP BAR =====
@@ -1791,29 +1835,29 @@ function Library:CreateWindow(Settings)
         Name = "Logo",
         Parent = TopBar,
         Size = UDim2.fromOffset(28, 28),
-        Position = CompactSidebar and UDim2.new(0, SidebarWidth / 2, 0.5, 0) or UDim2.new(0, 14, 0.5, 0),
-        AnchorPoint = CompactSidebar and Vector2.new(0.5, 0.5) or Vector2.new(0, 0.5),
+        Position = SidebarExpanded and UDim2.new(0, 14, 0.5, 0) or UDim2.new(0, SidebarWidth / 2, 0.5, 0),
+        AnchorPoint = SidebarExpanded and Vector2.new(0, 0.5) or Vector2.new(0.5, 0.5),
         BackgroundTransparency = 1,
         ZIndex = 7
     })
     SetImageAsync(LogoIcon, "Image", (CustomIconID and CustomIconID ~= "") and CustomIconID or "rbxassetid://10884488899")
 
-    if not CompactSidebar then
-        Create("TextLabel", {
-            Parent = TopBar,
-            Size = UDim2.new(0, SidebarWidth - 54, 1, 0),
-            Position = UDim2.new(0, 48, 0, 0),
-            BackgroundTransparency = 1,
-            Text = Title,
-            Font = Library.GlobalFontBold,
-            TextColor3 = SelectedTheme.Text,
-            TextSize = 14,
-            TextXAlignment = Enum.TextXAlignment.Left,
-            TextTruncate = Enum.TextTruncate.AtEnd,
-            ZIndex = 7,
-            ThemeTag = "Text"
-        })
-    end
+    local WindowTitle = Create("TextLabel", {
+        Name = "WindowTitle",
+        Parent = TopBar,
+        Visible = SidebarExpanded,
+        Size = UDim2.new(0, SidebarWidth - 54, 1, 0),
+        Position = UDim2.new(0, 48, 0, 0),
+        BackgroundTransparency = 1,
+        Text = Title,
+        Font = Library.GlobalFontBold,
+        TextColor3 = SelectedTheme.Text,
+        TextSize = 14,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextTruncate = Enum.TextTruncate.AtEnd,
+        ZIndex = 7,
+        ThemeTag = "Text"
+    })
 
     -- Search bar (turkuaz)
     local SearchFrame = Create("Frame", {
@@ -1911,7 +1955,8 @@ function Library:CreateWindow(Settings)
         TS:Create(CloseX, TweenInfo.new(0.2), {TextColor3 = SelectedTheme.Error}):Play()
     end)
     CloseX.MouseLeave:Connect(function()
-        TS:Create(CloseX, TweenInfo.new(0.2), {TextColor3 = Color3.new(1, 1, 1)}):Play()
+        local idleColor = Library.MenuStyleActive and Style.Icon or Color3.new(1, 1, 1)
+        TS:Create(CloseX, TweenInfo.new(0.2), {TextColor3 = idleColor}):Play()
     end)
     CloseX.MouseButton1Click:Connect(function()
         if Library.CloseWindow then
@@ -1965,7 +2010,11 @@ function Library:CreateWindow(Settings)
     })
     ApplyIcon(ResizeBtn, "move-diagonal-2")
     ResizeBtn.Rotation = 90
-    MakeResizable(ResizeBtn, WindowContainer)
+    MakeResizable(ResizeBtn, WindowContainer, function()
+        if refreshWindowLayout then
+            refreshWindowLayout()
+        end
+    end)
 
     -- ===== TOOLTIP (compact sidebar icin) =====
     local Tooltip = Create("TextLabel", {
@@ -1987,10 +2036,16 @@ function Library:CreateWindow(Settings)
     local TooltipCorner = Instance.new("UICorner")
     TooltipCorner.CornerRadius = UDim.new(0, 4)
     TooltipCorner.Parent = Tooltip
-    Create("UIStroke", {Parent = Tooltip, Color = Style.Outline, Thickness = 1, ApplyStrokeMode = Enum.ApplyStrokeMode.Border})
+    local TooltipStroke = Create("UIStroke", {Parent = Tooltip, Color = Style.Outline, Thickness = 1, ApplyStrokeMode = Enum.ApplyStrokeMode.Border})
 
     local function AttachTooltip(obj, text)
         obj.MouseEnter:Connect(function()
+            local currentWidth = WindowContainer.AbsoluteSize.X > 0 and WindowContainer.AbsoluteSize.X or WindowContainer.Size.X.Offset
+            local isVisuallyExpanded = SidebarExpanded and currentWidth >= 420
+            if isVisuallyExpanded then
+                Tooltip.Visible = false
+                return
+            end
             Tooltip.Text = text
             Tooltip.Position = UDim2.fromOffset(Mouse.X + 16, Mouse.Y - 11)
             Tooltip.Visible = true
@@ -2052,8 +2107,8 @@ function Library:CreateWindow(Settings)
         Name = "TabIcon",
         Parent = OpenSettingsBtn,
         Size = UDim2.fromOffset(20, 20),
-        AnchorPoint = CompactSidebar and Vector2.new(0.5, 0.5) or Vector2.new(0, 0.5),
-        Position = CompactSidebar and UDim2.new(0.5, 0, 0.5, 0) or UDim2.new(0, 10, 0.5, 0),
+        AnchorPoint = SidebarExpanded and Vector2.new(0, 0.5) or Vector2.new(0.5, 0.5),
+        Position = SidebarExpanded and UDim2.new(0, 10, 0.5, 0) or UDim2.new(0.5, 0, 0.5, 0),
         BackgroundTransparency = 1,
         ImageColor3 = SelectedTheme.ElementAccent,
         ImageTransparency = 0.45,
@@ -2062,23 +2117,23 @@ function Library:CreateWindow(Settings)
     })
     ApplyIcon(SettingsGear, "settings")
 
-    if not CompactSidebar then
-        Create("TextLabel", {
-            Name = "TabLabel",
-            Parent = OpenSettingsBtn,
-            Size = UDim2.new(1, -40, 1, 0),
-            Position = UDim2.new(0, 36, 0, 0),
-            BackgroundTransparency = 1,
-            Text = "UI Settings",
-            Font = Library.GlobalFont,
-            TextColor3 = SelectedTheme.TextDark,
-            TextSize = 13,
-            TextXAlignment = Enum.TextXAlignment.Left,
-            ZIndex = 7
-        })
-    else
-        AttachTooltip(OpenSettingsBtn, "UI Settings")
-    end
+    local SettingsLabel = Create("TextLabel", {
+        Name = "TabLabel",
+        Parent = OpenSettingsBtn,
+        Visible = SidebarExpanded,
+        Size = UDim2.new(1, -40, 1, 0),
+        Position = UDim2.new(0, 36, 0, 0),
+        BackgroundTransparency = 1,
+        Text = "UI Settings",
+        Font = Library.GlobalFont,
+        TextColor3 = SelectedTheme.TextDark,
+        TextSize = 13,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        ZIndex = 7,
+        ThemeTag = "TextDark"
+    })
+    table.insert(Library.ThemeObjects.TabLabels, {Label = SettingsLabel, Btn = OpenSettingsBtn, Icon = SettingsGear})
+    AttachTooltip(OpenSettingsBtn, "UI Settings")
 
     local SettingsIsActive = false
     OpenSettingsBtn.MouseEnter:Connect(function()
@@ -2632,7 +2687,7 @@ function Library:CreateWindow(Settings)
         local TabLabel = Create("TextLabel", {
             Name = "TabLabel",
             Parent = TabBtn,
-            Visible = not (CompactSidebar and HasIcon),
+            Visible = SidebarExpanded,
             Size = UDim2.new(1, HasIcon and -42 or -20, 1, 0),
             Position = UDim2.new(0, HasIcon and 36 or 12, 0, 0),
             BackgroundTransparency = 1,
@@ -2651,8 +2706,8 @@ function Library:CreateWindow(Settings)
                 Name = "TabIcon",
                 Parent = TabBtn,
                 Size = UDim2.fromOffset(20, 20),
-                AnchorPoint = CompactSidebar and Vector2.new(0.5, 0.5) or Vector2.new(0, 0.5),
-                Position = CompactSidebar and UDim2.new(0.5, 0, 0.5, 0) or UDim2.new(0, 10, 0.5, 0),
+                AnchorPoint = SidebarExpanded and Vector2.new(0, 0.5) or Vector2.new(0.5, 0.5),
+                Position = SidebarExpanded and UDim2.new(0, 10, 0.5, 0) or UDim2.new(0.5, 0, 0.5, 0),
                 BackgroundTransparency = 1,
                 ImageColor3 = SelectedTheme.ElementAccent,
                 ImageTransparency = 0.45,
@@ -2662,9 +2717,7 @@ function Library:CreateWindow(Settings)
         end
         table.insert(Library.ThemeObjects.TabLabels, {Label = TabLabel, Btn = TabBtn, Icon = TabIcon})
 
-        if CompactSidebar then
-            AttachTooltip(TabBtn, TabName)
-        end
+        AttachTooltip(TabBtn, TabName)
 
         local hoverTweenTab, leaveTweenTab
         TabBtn.MouseEnter:Connect(function()
@@ -2902,11 +2955,12 @@ function Library:CreateWindow(Settings)
                 })
                 local LineColor = Library.Style and Library.Style.Outline or Color3.fromRGB(40, 40, 40)
                 local LineL = Create("Frame", {
+                    Name = "DividerLine",
                     Parent = Holder,
                     AnchorPoint = Vector2.new(0, 0.5),
                     Position = UDim2.new(0, 2, 0.5, 0),
                     Size = UDim2.new(1, -4, 0, 1),
-                    BackgroundColor3 = Color3.fromRGB(70, 70, 70),
+                    BackgroundColor3 = LineColor,
                     BackgroundTransparency = 0.3,
                     BorderSizePixel = 0,
                     ZIndex = 8
@@ -2915,11 +2969,12 @@ function Library:CreateWindow(Settings)
                     return Holder
                 end
                 local LineR = Create("Frame", {
+                    Name = "DividerLine",
                     Parent = Holder,
                     AnchorPoint = Vector2.new(1, 0.5),
                     Position = UDim2.new(1, -2, 0.5, 0),
                     Size = UDim2.new(0.5, -40, 0, 1),
-                    BackgroundColor3 = Color3.fromRGB(70, 70, 70),
+                    BackgroundColor3 = LineColor,
                     BackgroundTransparency = 0.3,
                     BorderSizePixel = 0,
                     ZIndex = 8
@@ -4442,41 +4497,99 @@ function Elements:CreateDropdown(Cfg)
 
     do
         local MENU_STYLE_PRESETS = {
-            ["Cinnamoroll & Pochacco"] = {
+            ["Pastel Sanrio"] = {
                 Palette = {
-                    Main = Color3.fromRGB(16, 32, 50),
-                    Second = Color3.fromRGB(28, 52, 75),
-                    Accent = Color3.fromRGB(139, 220, 255),
-                    ElementAccent = Color3.fromRGB(82, 181, 239),
-                    Text = Color3.fromRGB(246, 251, 255),
-                    TextDark = Color3.fromRGB(174, 207, 226),
-                    Error = Color3.fromRGB(255, 110, 137),
-                    GradientStart = Color3.fromRGB(73, 179, 242),
-                    GradientEnd = Color3.fromRGB(183, 233, 255)
+                    Main = Color3.fromRGB(254, 183, 213),
+                    Second = Color3.fromRGB(214, 241, 254),
+                    Accent = Color3.fromRGB(253, 164, 196),
+                    ElementAccent = Color3.fromRGB(154, 90, 131),
+                    Text = Color3.fromRGB(52, 34, 45),
+                    TextDark = Color3.fromRGB(92, 65, 79),
+                    Error = Color3.fromRGB(193, 76, 113),
+                    GradientStart = Color3.fromRGB(253, 164, 196),
+                    GradientEnd = Color3.fromRGB(230, 168, 246),
+                    Background = ""
+                },
+                Shell = {
+                    Background = Color3.fromRGB(254, 183, 213),
+                    Panel = Color3.fromRGB(251, 216, 235),
+                    Element = Color3.fromRGB(199, 182, 219),
+                    Outline = Color3.fromRGB(152, 121, 135),
+                    Icon = Color3.fromRGB(92, 65, 79)
+                },
+                Window = {
+                    BackgroundTransparency = 0
                 },
                 Characters = {
                     {
                         Name = "Cinnamoroll",
                         Image = "rbxthumb://type=Asset&id=118011660358950&w=420&h=420",
-                        Placement = "Top",
-                        Width = 174,
-                        Height = 170,
-                        MobileWidth = 122,
-                        MobileHeight = 120,
-                        BottomOffset = 32,
-                        MobileBottomOffset = 26
+                        Placement = "TopHang",
+                        Width = 128,
+                        Height = 118,
+                        MobileWidth = 68,
+                        MobileHeight = 64,
+                        XScale = 0.08,
+                        MobileXScale = 0.08,
+                        TopOffset = -86,
+                        MobileTopOffset = -49
                     },
                     {
                         Name = "Pochacco",
                         Image = "rbxthumb://type=Asset&id=13187317029&w=420&h=420",
-                        Placement = "Right",
-                        Width = 148,
-                        Height = 148,
-                        MobileWidth = 102,
-                        MobileHeight = 102,
-                        SideOffset = 36,
-                        MobileSideOffset = 16
+                        Placement = "TopHang",
+                        Width = 108,
+                        Height = 104,
+                        MobileWidth = 58,
+                        MobileHeight = 56,
+                        XScale = 0.29,
+                        MobileXScale = 0.28,
+                        TopOffset = -88,
+                        MobileTopOffset = -48
+                    },
+                    {
+                        Name = "Pompompurin",
+                        Image = "rbxthumb://type=Asset&id=17104568520&w=420&h=420",
+                        Placement = "TopHang",
+                        Width = 108,
+                        Height = 104,
+                        MobileWidth = 58,
+                        MobileHeight = 56,
+                        XScale = 0.50,
+                        MobileXScale = 0.49,
+                        TopOffset = -88,
+                        MobileTopOffset = -48
+                    },
+                    {
+                        Name = "My Melody",
+                        Image = "rbxthumb://type=Asset&id=10541361366&w=420&h=420",
+                        Placement = "TopHang",
+                        Width = 116,
+                        Height = 108,
+                        MobileWidth = 60,
+                        MobileHeight = 56,
+                        XScale = 0.72,
+                        MobileXScale = 0.71,
+                        TopOffset = -88,
+                        MobileTopOffset = -48
+                    },
+                    {
+                        Name = "Kuromi",
+                        Image = "rbxthumb://type=Asset&id=17861427309&w=420&h=420",
+                        Placement = "TopHang",
+                        Width = 112,
+                        Height = 108,
+                        MobileWidth = 60,
+                        MobileHeight = 58,
+                        XScale = 0.94,
+                        MobileXScale = 0.93,
+                        TopOffset = -82,
+                        MobileTopOffset = -44
                     }
+                },
+                Decorations = {
+                    {Kind = "Parachute", Name = "PastelParachuteLeft", XScale = 0.185, YOffset = -28, Width = 54, Height = 72, MobileWidth = 38, MobileHeight = 52, Image = "rbxthumb://type=Asset&id=17104568520&w=420&h=420", CanopyColor = Color3.fromRGB(255, 238, 187)},
+                    {Kind = "Parachute", Name = "PastelParachuteRight", XScale = 0.825, YOffset = -24, Width = 50, Height = 68, MobileWidth = 36, MobileHeight = 50, Image = "rbxthumb://type=Asset&id=10541361366&w=420&h=420", CanopyColor = Color3.fromRGB(230, 168, 246)}
                 }
             },
             ["Spider-Man"] = {
@@ -4519,7 +4632,7 @@ function Elements:CreateDropdown(Cfg)
         local themeBeforeMenuStyle = nil
         local paletteKeys = {
             "Main", "Second", "Accent", "ElementAccent", "Text",
-            "TextDark", "Error", "GradientStart", "GradientEnd"
+            "TextDark", "Error", "GradientStart", "GradientEnd", "Background"
         }
 
         local function capturePalette(theme)
@@ -4547,7 +4660,10 @@ function Elements:CreateDropdown(Cfg)
             if not enabled then return end
 
             local characters = preset and preset.Characters or {}
+            local decorations = preset and preset.Decorations or {}
             local mobile = IsMobile
+            local currentHeight = math.max(WindowContainer.AbsoluteSize.Y, WindowContainer.Size.Y.Offset)
+
             for index, character in ipairs(characters) do
                 local placement = character.Placement or (index == 1 and "Left" or "Right")
                 local width = mobile and (character.MobileWidth or 84) or (character.Width or 108)
@@ -4562,16 +4678,16 @@ function Elements:CreateDropdown(Cfg)
                     anchor = Vector2.new(0.5, 0)
                     position = UDim2.new(
                         mobile and (character.MobileXScale or character.XScale or 0.5) or (character.XScale or 0.5),
-                        character.XOffset or 0,
+                        mobile and (character.MobileXOffset or character.XOffset or 0) or (character.XOffset or 0),
                         0,
                         mobile and (character.MobileTopOffset or -10) or (character.TopOffset or -12)
                     )
                 elseif placement == "Left" then
-                    position = UDim2.new(0, mobile and -(width * 0.18) or -(width * 0.5), 0, WindowSizeY * (character.HeightRatio or 0.34))
+                    position = UDim2.new(0, mobile and -(width * 0.18) or -(width * 0.5), 0, currentHeight * (character.HeightRatio or 0.34))
                 elseif placement == "Right" then
-                    position = UDim2.new(1, mobile and (character.MobileSideOffset or 16) or (character.SideOffset or 36), 0, WindowSizeY * (character.HeightRatio or 0.34))
+                    position = UDim2.new(1, mobile and (character.MobileSideOffset or 16) or (character.SideOffset or 36), 0, currentHeight * (character.HeightRatio or 0.34))
                 else
-                    position = UDim2.new(0.5, character.XOffset or 0, 0, WindowSizeY * (character.HeightRatio or 0.34))
+                    position = UDim2.new(0.5, character.XOffset or 0, 0, currentHeight * (character.HeightRatio or 0.34))
                 end
 
                 Create("ImageLabel", {
@@ -4589,7 +4705,280 @@ function Elements:CreateDropdown(Cfg)
                     ZIndex = 22
                 })
             end
+
+            for index, decoration in ipairs(decorations) do
+                local xScale = mobile and (decoration.MobileXScale or decoration.XScale or 0.5) or (decoration.XScale or 0.5)
+                local yOffset = mobile and (decoration.MobileYOffset or decoration.YOffset or 0) or (decoration.YOffset or 0)
+                if decoration.Kind == "Parachute" then
+                    local width = mobile and (decoration.MobileWidth or 38) or (decoration.Width or 52)
+                    local height = mobile and (decoration.MobileHeight or 52) or (decoration.Height or 70)
+                    local holder = Create("Frame", {
+                        Name = "Decoration_" .. tostring(decoration.Name or index),
+                        Parent = root,
+                        AnchorPoint = Vector2.new(0.5, 0),
+                        Position = UDim2.new(xScale, 0, 0, yOffset),
+                        Size = UDim2.fromOffset(width, height),
+                        BackgroundTransparency = 1,
+                        ZIndex = 21
+                    })
+                    local canopy = Create("Frame", {
+                        Name = "Canopy",
+                        Parent = holder,
+                        Position = UDim2.new(0.12, 0, 0, 2),
+                        Size = UDim2.new(0.76, 0, 0.30, 0),
+                        BackgroundColor3 = decoration.CanopyColor or Color3.fromRGB(255, 238, 187),
+                        BorderSizePixel = 0,
+                        ZIndex = 22
+                    })
+                    AddCorner(canopy, 24)
+                    Create("UIStroke", {Parent = canopy, Color = Style.Outline, Thickness = 1})
+                    Create("Frame", {
+                        Parent = holder,
+                        Position = UDim2.new(0.28, 0, 0.27, 0),
+                        Size = UDim2.new(0, 1, 0, height * 0.30),
+                        Rotation = -15,
+                        BackgroundColor3 = Style.Outline,
+                        BorderSizePixel = 0,
+                        ZIndex = 22
+                    })
+                    Create("Frame", {
+                        Parent = holder,
+                        Position = UDim2.new(0.72, 0, 0.27, 0),
+                        Size = UDim2.new(0, 1, 0, height * 0.30),
+                        Rotation = 15,
+                        BackgroundColor3 = Style.Outline,
+                        BorderSizePixel = 0,
+                        ZIndex = 22
+                    })
+                    Create("ImageLabel", {
+                        Name = "Toy",
+                        Parent = holder,
+                        AnchorPoint = Vector2.new(0.5, 0),
+                        Position = UDim2.new(0.5, 0, 0.55, 0),
+                        Size = UDim2.new(0.50, 0, 0.43, 0),
+                        BackgroundTransparency = 1,
+                        Image = decoration.Image or "",
+                        ScaleType = Enum.ScaleType.Fit,
+                        ZIndex = 23
+                    })
+                elseif decoration.Kind == "Symbol" then
+                    local size = mobile and (decoration.MobileSize or 18) or (decoration.Size or 24)
+                    Create("TextLabel", {
+                        Name = "Decoration_" .. tostring(decoration.Name or index),
+                        Parent = root,
+                        AnchorPoint = Vector2.new(0.5, 0.5),
+                        Position = UDim2.new(xScale, 0, 0, yOffset),
+                        Size = UDim2.fromOffset(size + 10, size + 10),
+                        BackgroundTransparency = 1,
+                        Text = decoration.Text or "✦",
+                        Font = Enum.Font.GothamBlack,
+                        TextSize = size,
+                        TextColor3 = decoration.Color or (theme and theme.ElementAccent) or Color3.new(1, 1, 1),
+                        TextStrokeColor3 = Style.Outline,
+                        TextStrokeTransparency = 0.25,
+                        ZIndex = 21
+                    })
+                end
+            end
         end
+
+        local baseShellStyle = {
+            Background = Style.Background,
+            Panel = Style.Panel,
+            Element = Style.Element,
+            Outline = Style.Outline,
+            Icon = Style.Icon
+        }
+        local baseWindowTransparency = MainBgColor.BackgroundTransparency
+
+        local function applyShellStyle(preset, enabled)
+            local pastelShellActive = enabled == true and preset ~= nil and preset.Shell ~= nil
+            Library.MenuStyleShellActive = pastelShellActive
+            if OrbContainer then OrbContainer.Visible = not pastelShellActive end
+            local shell = pastelShellActive and preset.Shell or baseShellStyle
+            for key, value in pairs(baseShellStyle) do
+                Style[key] = shell[key] or value
+            end
+
+            Main.BackgroundColor3 = SelectedTheme.Main
+            MainBgColor.BackgroundColor3 = SelectedTheme.Main
+            MainBgColor.BackgroundTransparency = (enabled and preset and preset.Window and preset.Window.BackgroundTransparency ~= nil)
+                and preset.Window.BackgroundTransparency or baseWindowTransparency
+
+            local backgroundImage = SelectedTheme.Background
+            if enabled and preset and preset.Palette and preset.Palette.Background ~= nil then
+                backgroundImage = preset.Palette.Background
+            end
+            SetImageAsync(MainBgImage, "Image", backgroundImage)
+
+            if MainOutline then MainOutline.Color = Style.Outline end
+            if SearchFrame then SearchFrame.BackgroundColor3 = Style.Element end
+            if SearchStroke then SearchStroke.Color = SelectedTheme.ElementAccent end
+            if MoveIcon then MoveIcon.ImageColor3 = Style.Icon end
+            if ResizeBtn then ResizeBtn.ImageColor3 = Style.Icon end
+            if CloseX then
+                CloseX.TextColor3 = enabled and Style.Icon or Color3.new(1, 1, 1)
+            end
+            if Tooltip then Tooltip.BackgroundColor3 = Style.Element end
+            if TooltipStroke then TooltipStroke.Color = Style.Outline end
+            if OpenSettingsBtn then OpenSettingsBtn.BackgroundColor3 = Style.Element end
+
+            local function ApplySidebarLayout()
+                local currentWidth = WindowContainer.AbsoluteSize.X > 0 and WindowContainer.AbsoluteSize.X or WindowContainer.Size.X.Offset
+                local expandedSidebar = SidebarExpanded and currentWidth >= 420
+                local availableWidth = math.max(CompactSidebarWidth, currentWidth - 250)
+                SidebarWidth = expandedSidebar and math.min(ExpandedSidebarWidth, availableWidth) or CompactSidebarWidth
+
+                if Tooltip and expandedSidebar then Tooltip.Visible = false end
+                if TabContainer then
+                    TabContainer.Size = UDim2.new(0, SidebarWidth, 1, -(TOPBAR_H + FOOTER_H + 1))
+                    TabContainer.BackgroundColor3 = Style.Panel
+                    TabContainer.BackgroundTransparency = pastelShellActive and 0.12 or 1
+                end
+                if SideDivider then
+                    SideDivider.Position = UDim2.new(0, SidebarWidth, 0, 0)
+                end
+                if SidebarResizeHandle then
+                    SidebarResizeHandle.Position = UDim2.new(0, SidebarWidth - 5, 0, TOPBAR_H + 1)
+                    SidebarResizeHandle.Size = UDim2.new(0, 10, 1, -(TOPBAR_H + FOOTER_H + 2))
+                end
+                if PageContainer then
+                    PageContainer.Size = UDim2.new(1, -(SidebarWidth + 8 + 6), 1, -(TOPBAR_H + FOOTER_H + 14))
+                    PageContainer.Position = UDim2.new(0, SidebarWidth + 8, 0, TOPBAR_H + 8)
+                end
+                if SearchFrame then
+                    SearchFrame.Position = UDim2.new(0, SidebarWidth + 8, 0.5, 0)
+                    SearchFrame.Size = UDim2.new(1, -(SidebarWidth + 8 + 44), 0, 30)
+                end
+                if LogoIcon then
+                    LogoIcon.AnchorPoint = expandedSidebar and Vector2.new(0, 0.5) or Vector2.new(0.5, 0.5)
+                    LogoIcon.Position = expandedSidebar and UDim2.new(0, 14, 0.5, 0) or UDim2.new(0, SidebarWidth / 2, 0.5, 0)
+                end
+                if WindowTitle then
+                    WindowTitle.Visible = expandedSidebar
+                    WindowTitle.Size = UDim2.new(0, SidebarWidth - 54, 1, 0)
+                    WindowTitle.Position = UDim2.new(0, 48, 0, 0)
+                    WindowTitle.TextSize = pastelShellActive and 15 or 14
+                end
+                if SettingsGear then
+                    SettingsGear.AnchorPoint = expandedSidebar and Vector2.new(0, 0.5) or Vector2.new(0.5, 0.5)
+                    SettingsGear.Position = expandedSidebar and UDim2.new(0, 10, 0.5, 0) or UDim2.new(0.5, 0, 0.5, 0)
+                end
+                if SettingsLabel then
+                    SettingsLabel.Visible = expandedSidebar
+                    SettingsLabel.Size = UDim2.new(1, -40, 1, 0)
+                    SettingsLabel.Position = UDim2.new(0, 36, 0, 0)
+                    SettingsLabel.TextSize = pastelShellActive and 14 or 13
+                end
+                if TabContainer then
+                    for _, tabButton in ipairs(TabContainer:GetChildren()) do
+                        if tabButton:IsA("TextButton") then
+                            local label = tabButton:FindFirstChild("TabLabel")
+                            local icon = tabButton:FindFirstChild("TabIcon")
+                            if label then
+                                label.Visible = expandedSidebar
+                                if expandedSidebar then
+                                    label.Size = UDim2.new(1, -42, 1, 0)
+                                    label.Position = UDim2.new(0, 36, 0, 0)
+                                    label.TextSize = pastelShellActive and 14 or 13
+                                else
+                                    label.Size = UDim2.new(1, -42, 1, 0)
+                                    label.Position = UDim2.new(0, 36, 0, 0)
+                                    label.TextSize = 13
+                                end
+                            end
+                            if icon then
+                                icon.AnchorPoint = expandedSidebar and Vector2.new(0, 0.5) or Vector2.new(0.5, 0.5)
+                                icon.Position = expandedSidebar and UDim2.new(0, 10, 0.5, 0) or UDim2.new(0.5, 0, 0.5, 0)
+                            end
+                            local selected = (ActiveTab and ActiveTab.Btn == tabButton) or (SettingsIsActive and tabButton == OpenSettingsBtn)
+                            tabButton.BackgroundColor3 = Style.Element
+                            tabButton.BackgroundTransparency = selected and 0 or 1
+                        end
+                    end
+                end
+            end
+            ApplySidebarLayout()
+            refreshWindowLayout = ApplySidebarLayout
+
+            for _, obj in ipairs(Main:GetDescendants()) do
+                if obj:IsA("Frame") or obj:IsA("TextButton") then
+                    if obj.Name == "Block" or obj.Name == "SearchGroup" then
+                        obj.BackgroundColor3 = Style.Panel
+                    elseif obj.Name == "BlockSep" or obj.Name == "TopDivider" or obj.Name == "SideDivider"
+                        or obj.Name == "FooterDivider" or obj.Name == "DividerLine" then
+                        obj.BackgroundColor3 = Style.Outline
+                    elseif obj.Name == "Search" or obj.Name == "TabBtn" or obj.Name == "SettingsBtn" or obj.Name == "Tooltip" then
+                        obj.BackgroundColor3 = Style.Element
+                    end
+                elseif obj:IsA("UIStroke") then
+                    local parent = obj.Parent
+                    if parent == Main or (parent and (parent.Name == "Block" or parent.Name == "SearchGroup" or parent.Name == "Tooltip")) then
+                        obj.Color = Style.Outline
+                    elseif parent and parent.Name == "Search" then
+                        obj.Color = SelectedTheme.ElementAccent
+                    end
+                end
+            end
+
+
+        end
+
+        -- Initialize the responsive sidebar layout once; later resize/style changes reuse it.
+        applyShellStyle(nil, false)
+
+        local sidebarDragging = false
+        local sidebarDragStartX = nil
+        local sidebarDragMoved = false
+
+        local function refreshSidebarLayout()
+            if refreshWindowLayout then
+                refreshWindowLayout()
+            end
+        end
+
+        SidebarResizeHandle.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                sidebarDragging = true
+                sidebarDragStartX = input.Position.X
+                sidebarDragMoved = false
+            end
+        end)
+
+        local sidebarInputChanged = UIS.InputChanged:Connect(function(input)
+            if not sidebarDragging then return end
+            if input.UserInputType ~= Enum.UserInputType.MouseMovement and input.UserInputType ~= Enum.UserInputType.Touch then
+                return
+            end
+
+            local deltaX = math.abs(input.Position.X - (sidebarDragStartX or input.Position.X))
+            if deltaX > 4 then sidebarDragMoved = true end
+            local requestedWidth = input.Position.X - Main.AbsolutePosition.X
+            if requestedWidth < 94 then
+                SidebarExpanded = false
+            else
+                SidebarExpanded = true
+                ExpandedSidebarWidth = math.clamp(requestedWidth, 120, 240)
+            end
+            refreshSidebarLayout()
+        end)
+        local sidebarInputEnded = UIS.InputEnded:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                sidebarDragging = false
+                sidebarDragStartX = nil
+            end
+        end)
+        table.insert(Library.WindowConnections, sidebarInputChanged)
+        table.insert(Library.WindowConnections, sidebarInputEnded)
+
+        SidebarResizeHandle.Activated:Connect(function()
+            if sidebarDragMoved then
+                sidebarDragMoved = false
+                return
+            end
+            SidebarExpanded = not SidebarExpanded
+            refreshSidebarLayout()
+        end)
 
         local function applyPalette(palette, menuStyleActive, preset)
             local nextTheme = {}
@@ -4607,6 +4996,7 @@ function Elements:CreateDropdown(Cfg)
 
             Main.BackgroundColor3 = nextTheme.Main
             MainBgColor.BackgroundColor3 = nextTheme.Main
+            applyShellStyle(preset, menuStyleActive)
             UpdateThemeObjects()
             UpdateGradients(nextTheme.Gradient)
 
